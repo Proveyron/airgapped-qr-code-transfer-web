@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Header from '@/components/Header';
 import * as pako from 'pako';
+import jsQR from 'jsqr';
 import { Camera, Square, Trash2, CheckCircle2, Download, ScanLine } from 'lucide-react';
 
 interface ReceiveState {
@@ -58,7 +59,6 @@ export default function ReceivePage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
-  const zbarRef = useRef<any>(null);
 
   const stateRef = useRef<ReceiveState>(state);
   stateRef.current = state;
@@ -108,39 +108,26 @@ export default function ReceivePage() {
     }
   }, [syncState]);
 
-  // Main scan loop using zbar-wasm / jsQR / video canvas frame scanning
-  const scanFrame = useCallback(async () => {
+  // Main scan loop using jsQR for 100% offline, high-speed QR decoding
+  const scanFrame = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    if (!video || !canvas || video.readyState < 2) {
-      if (scanning) {
-        rafRef.current = requestAnimationFrame(scanFrame);
-      }
-      return;
-    }
+    if (video && canvas && video.readyState >= 2) {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imgData.data, imgData.width, imgData.height, {
+          inversionAttempts: 'dontInvert',
+        });
 
-      try {
-        if (!zbarRef.current && (window as any).zbarWasm) {
-          zbarRef.current = (window as any).zbarWasm;
+        if (code && code.data) {
+          processDecodedText(code.data);
         }
-
-        if (zbarRef.current) {
-          const symbols = await zbarRef.current.scanImageData(imgData);
-          if (symbols && symbols.length > 0) {
-            const text = symbols[0].decode();
-            if (text) processDecodedText(text);
-          }
-        }
-      } catch (e) {
-        // Continue scanning silently
       }
     }
 
@@ -193,14 +180,6 @@ export default function ReceivePage() {
   const startCamera = useCallback(async () => {
     setError(null);
     try {
-      // Inject zbar-wasm script dynamically if needed
-      if (!(window as any).zbarWasm) {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js';
-        document.body.appendChild(script);
-        await new Promise((r) => setTimeout(r, 800));
-      }
-
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       });
@@ -282,7 +261,7 @@ export default function ReceivePage() {
             <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">Camera Scanner</span>
             <span className={`font-mono text-xs flex items-center gap-2 ${scanning ? 'text-emerald-300' : 'text-white/40'}`}>
               <span className={`w-2 h-2 rounded-full ${scanning ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
-              {scanning ? 'LIVE 60FPS' : 'IDLE'}
+              {scanning ? 'LIVE SCANNER' : 'IDLE'}
             </span>
           </div>
 
