@@ -11,24 +11,27 @@ interface HeaderProps {
 export default function Header({ title, showBack }: HeaderProps) {
   return (
     <header className={styles.header}>
-      <div className={styles.left}>
-        {showBack && (
-          <Link href="/" className={styles.backBtn} aria-label="Go back">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
+      <div className={styles.container}>
+        <div className={styles.left}>
+          {showBack && (
+            <Link href="/" className={styles.backButton} aria-label="Back to home">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+            </Link>
+          )}
+          <Link href="/" className={styles.logoLink}>
+            <span className="gradient-text">QR AirGap</span>
           </Link>
-        )}
-        <Link href="/" className={`${styles.logo} gradient-text`}>
-          QR Transfer
-        </Link>
-      </div>
-      {title && (
-        <div className={styles.right}>
-          {title}
+          <span className={styles.badge}>v2.0 Ultra</span>
         </div>
-      )}
+
+        {title && (
+          <div className={styles.right}>
+            <span className={styles.pageTitle}>{title}</span>
+          </div>
+        )}
+      </div>
     </header>
   );
 }
