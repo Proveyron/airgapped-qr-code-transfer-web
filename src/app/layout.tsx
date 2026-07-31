@@ -56,7 +56,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="bg-[#07070a] text-[#e7e7ee] overflow-hidden antialiased">
+      <body className="bg-[#07070a] text-[#e7e7ee] min-h-screen overflow-x-hidden antialiased">
         <AmbientBackground />
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", zIndex: 1 }}>
           {children}

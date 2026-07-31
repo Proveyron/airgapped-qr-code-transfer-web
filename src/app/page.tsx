@@ -4,7 +4,7 @@ import { Upload, Camera, ShieldCheck, Smartphone, Zap } from 'lucide-react';
 
 export default function Home() {
   return (
-    <div className="relative z-10 h-full w-full overflow-hidden min-h-screen flex flex-col">
+    <div className="relative z-10 w-full min-h-screen flex flex-col">
       <Header mode="landing" />
 
       <main className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-8 pt-20 pb-10 flex flex-col items-center justify-center gap-6 sm:gap-8">
