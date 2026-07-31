@@ -40,10 +40,7 @@ const decodeData = (inputString: string): { index: number; data: Uint8Array } | 
     for (let i = 0; i < len; i++) {
       bytes[i] = binaryString.charCodeAt(i);
     }
-    return {
-      index: parseInt(indexStr, 10),
-      data: bytes,
-    };
+    return { index: parseInt(indexStr, 10), data: bytes };
   } catch (e) {
     return null;
   }
@@ -71,7 +68,6 @@ export default function ReceivePage() {
     });
   }, []);
 
-  // Process decoded QR text
   const processDecodedText = useCallback((text: string) => {
     try {
       if (text.includes('"chunks"')) {
@@ -79,12 +75,7 @@ export default function ReceivePage() {
         if (meta.name && meta.chunks) {
           syncState((prev) => {
             if (prev.name !== meta.name || prev.total !== meta.chunks) {
-              return {
-                name: meta.name,
-                size: prev.size,
-                total: meta.chunks,
-                received: new Map(),
-              };
+              return { name: meta.name, size: prev.size, total: meta.chunks, received: new Map() };
             }
             return prev;
           });
@@ -96,10 +87,7 @@ export default function ReceivePage() {
             if (prev.received.has(decoded.index)) return prev;
             const nextMap = new Map(prev.received);
             nextMap.set(decoded.index, decoded.data);
-            return {
-              ...prev,
-              received: nextMap,
-            };
+            return { ...prev, received: nextMap };
           });
         }
       }
@@ -108,7 +96,6 @@ export default function ReceivePage() {
     }
   }, [syncState]);
 
-  // Main scan loop using jsQR for 100% offline, high-speed QR decoding
   const scanFrame = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -120,10 +107,7 @@ export default function ReceivePage() {
         canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-        const code = jsQR(imgData.data, imgData.width, imgData.height, {
-          inversionAttempts: 'dontInvert',
-        });
+        const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
 
         if (code && code.data) {
           processDecodedText(code.data);
@@ -136,7 +120,6 @@ export default function ReceivePage() {
     }
   }, [scanning, processDecodedText]);
 
-  // Handle completion assembly
   useEffect(() => {
     const { total, received, name } = state;
     if (total > 0 && received.size === total && !done) {
@@ -165,14 +148,13 @@ export default function ReceivePage() {
         setDone(true);
         setScanning(false);
 
-        // Auto trigger download
         const a = document.createElement('a');
         a.href = url;
         a.download = name || 'received-file';
         a.click();
       } catch (e) {
-        console.error('File assembly error:', e);
-        setError('Error reconstructing file buffer.');
+        console.error('Assembly error:', e);
+        setError('Error reconstructing file.');
       }
     }
   }, [state, done, syncState]);
@@ -183,7 +165,6 @@ export default function ReceivePage() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       });
-
       const video = videoRef.current;
       if (video) {
         video.srcObject = stream;
@@ -192,7 +173,6 @@ export default function ReceivePage() {
       setScanning(true);
     } catch {
       try {
-        // Fallback to default/front camera
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         const video = videoRef.current;
         if (video) {
@@ -226,9 +206,7 @@ export default function ReceivePage() {
   }, [scanning, scanFrame]);
 
   useEffect(() => {
-    return () => {
-      stopCamera();
-    };
+    return () => { stopCamera(); };
   }, [stopCamera]);
 
   const purge = () => {
@@ -251,138 +229,94 @@ export default function ReceivePage() {
   const progress = state.total ? (receivedCount / state.total) * 100 : 0;
 
   return (
-    <div className="relative z-10 w-full min-h-screen flex flex-col">
+    <div className="relative z-10 w-full h-[100dvh] max-h-[100dvh] overflow-hidden flex flex-col justify-between">
       <Header mode="receive" title="Receive Mode" showBack={true} />
 
-      <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-16 sm:pt-20 pb-4 sm:pb-8 flex flex-col gap-3">
+      <main className="flex-1 w-full max-w-xl mx-auto px-3 pt-14 pb-2 flex flex-col items-center justify-evenly gap-2 overflow-hidden">
         {/* Scanner */}
-        <div className="fade-up glass rounded-2xl p-4 flex flex-col items-center shrink-0">
-          <div className="flex items-center justify-between w-full mb-3">
-            <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">Camera Scanner</span>
-            <span className={`font-mono text-xs flex items-center gap-2 ${scanning ? 'text-emerald-300' : 'text-white/40'}`}>
-              <span className={`w-2 h-2 rounded-full ${scanning ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
-              {scanning ? 'LIVE SCANNER' : 'IDLE'}
+        <div className="fade-up glass rounded-xl p-3 flex flex-col items-center w-full shrink-0">
+          <div className="flex items-center justify-between w-full mb-2">
+            <span className="text-[10px] font-semibold text-white/60 uppercase tracking-wider">Scanner</span>
+            <span className={`font-mono text-[10px] flex items-center gap-1.5 ${scanning ? 'text-emerald-300' : 'text-white/40'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${scanning ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
+              {scanning ? 'LIVE' : 'IDLE'}
             </span>
           </div>
 
           <div
-            className="relative rounded-2xl overflow-hidden bg-black/80 border border-white/10 shrink-0 flex items-center justify-center"
-            style={{ width: 'min(42vh, 75vw, 320px)', height: 'min(42vh, 75vw, 320px)' }}
+            className="relative rounded-xl overflow-hidden bg-black/80 border border-white/10 shrink-0 flex items-center justify-center"
+            style={{ width: 'min(30vh, 55vw, 240px)', height: 'min(30vh, 55vw, 240px)' }}
           >
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              className={`w-full h-full object-cover ${scanning ? 'opacity-90' : 'opacity-30'}`}
-            />
+            <video ref={videoRef} playsInline muted className={`w-full h-full object-cover ${scanning ? 'opacity-90' : 'opacity-30'}`} />
             <canvas ref={canvasRef} className="hidden" />
 
-            <Reticle className="top-3 left-3" rot="rotate-0" />
-            <Reticle className="top-3 right-3" rot="rotate-90" />
-            <Reticle className="bottom-3 left-3" rot="-rotate-90" />
-            <Reticle className="bottom-3 right-3" rot="rotate-180" />
+            <Reticle className="top-2 left-2" rot="rotate-0" />
+            <Reticle className="top-2 right-2" rot="rotate-90" />
+            <Reticle className="bottom-2 left-2" rot="-rotate-90" />
+            <Reticle className="bottom-2 right-2" rot="rotate-180" />
 
             {scanning && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div
-                  className="radar-sweep w-[80%] h-[80%] rounded-full"
-                  style={{
-                    background: 'conic-gradient(from 0deg, transparent 0deg, rgba(6,182,212,0.25) 40deg, transparent 60deg)',
-                  }}
-                />
+                <div className="radar-sweep w-[80%] h-[80%] rounded-full" style={{ background: 'conic-gradient(from 0deg, transparent 0deg, rgba(6,182,212,0.25) 40deg, transparent 60deg)' }} />
               </div>
             )}
 
             {scanning && (
-              <div className="absolute inset-x-0 scanline h-0.5 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_2px_rgba(6,182,212,0.7)]" />
+              <div className="absolute inset-x-0 scanline h-0.5 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_2px_rgba(6,182,212,0.7)]" />
             )}
 
             {!scanning && !done && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6">
-                <ScanLine className="w-8 h-8 text-cyan-300/80" />
-                <p className="text-xs text-white/60">
-                  {error ? error : 'Point your camera at a streaming QR code'}
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-4">
+                <ScanLine className="w-6 h-6 text-cyan-300/80" />
+                <p className="text-[10px] text-white/60">
+                  {error ? error : 'Point camera at QR code'}
                 </p>
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-3 mt-4 flex-wrap justify-center">
+          <div className="flex items-center gap-2 mt-3 flex-wrap justify-center">
             {!scanning ? (
-              <button
-                onClick={startCamera}
-                className="btn-gradient rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold flex items-center gap-2"
-              >
-                <Camera className="w-4 h-4" /> Start Scanning
+              <button onClick={startCamera} className="btn-gradient rounded-lg px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5" /> Start Scanning
               </button>
             ) : (
-              <button
-                onClick={stopCamera}
-                className="btn-ghost rounded-xl px-4 py-2.5 text-xs sm:text-sm flex items-center gap-2"
-              >
-                <Square className="w-4 h-4" /> Pause
+              <button onClick={stopCamera} className="btn-ghost rounded-lg px-3 py-1.5 text-xs flex items-center gap-1.5">
+                <Square className="w-3.5 h-3.5" /> Pause
               </button>
             )}
-            <button
-              onClick={purge}
-              className="btn-ghost rounded-xl px-4 py-2.5 text-xs sm:text-sm flex items-center gap-2 text-rose-300/90 hover:text-rose-200"
-            >
-              <Trash2 className="w-4 h-4" /> Stop & Purge Buffer
+            <button onClick={purge} className="btn-ghost rounded-lg px-3 py-1.5 text-xs flex items-center gap-1.5 text-rose-300/90">
+              <Trash2 className="w-3.5 h-3.5" /> Purge Buffer
             </button>
           </div>
         </div>
 
-        {/* Chunk grid */}
+        {/* Chunk Grid */}
         {state.total > 0 && (
-          <div className="fade-up glass rounded-xl p-4 shrink-0">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">Chunk Matrix Grid</span>
-              <span className="font-mono text-xs text-cyan-300/90">
-                {receivedCount} / {state.total} · {progress.toFixed(0)}%
-              </span>
+          <div className="fade-up glass rounded-xl p-3 w-full shrink-0">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-semibold text-white/60 uppercase tracking-wider">Chunk Matrix</span>
+              <span className="font-mono text-[10px] text-cyan-300">{receivedCount} / {state.total} · {progress.toFixed(0)}%</span>
             </div>
-            <div
-              className="grid gap-1 overflow-hidden p-2 bg-black/40 rounded-lg border border-white/5"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(10px, 1fr))', maxHeight: '120px' }}
-            >
-              {Array.from({ length: Math.min(state.total, 400) }).map((_, i) => {
+            <div className="grid gap-0.5 overflow-hidden p-1.5 bg-black/40 rounded-lg border border-white/5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(8px, 1fr))', maxHeight: '70px' }}>
+              {Array.from({ length: Math.min(state.total, 300) }).map((_, i) => {
                 const got = state.received.has(i);
-                return (
-                  <div
-                    key={i}
-                    className={`aspect-square rounded-[3px] transition-all ${
-                      got ? 'bg-emerald-400 led-on' : 'bg-white/10'
-                    }`}
-                  />
-                );
+                return <div key={i} className={`aspect-square rounded-[2px] ${got ? 'bg-emerald-400 led-on' : 'bg-white/10'}`} />;
               })}
             </div>
-            {state.total > 400 && (
-              <p className="text-[10px] font-mono text-white/30 mt-1.5 text-center">
-                showing first 400 of {state.total} chunks
-              </p>
-            )}
           </div>
         )}
 
-        {/* Completion card */}
+        {/* Completion */}
         {done && (
-          <div className="fade-up glass-strong rounded-2xl p-6 flex flex-col items-center text-center pop shrink-0">
-            <div className="relative">
-              <Confetti />
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400/30 to-cyan-400/10 flex items-center justify-center shadow-lg">
-                <CheckCircle2 className="w-9 h-9 text-emerald-300" />
-              </div>
+          <div className="fade-up glass-strong rounded-xl p-4 flex flex-col items-center text-center pop w-full shrink-0">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400/30 to-cyan-400/10 flex items-center justify-center shadow-lg">
+              <CheckCircle2 className="w-7 h-7 text-emerald-300" />
             </div>
-            <h3 className="text-lg font-bold text-white mt-4">Transfer Complete</h3>
-            <p className="text-xs font-mono text-white/60 mt-1 truncate max-w-full">
-              {state.name} · {bytesToHuman(state.size)}
-            </p>
-            <button
-              onClick={download}
-              className="btn-gradient rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold flex items-center gap-2 mt-4"
-            >
-              <Download className="w-4 h-4" /> Download File
+            <h3 className="text-sm font-bold text-white mt-2">Transfer Complete</h3>
+            <p className="text-[10px] font-mono text-white/60 mt-0.5 truncate max-w-full">{state.name} · {bytesToHuman(state.size)}</p>
+            <button onClick={download} className="btn-gradient rounded-lg px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 mt-2">
+              <Download className="w-3.5 h-3.5" /> Download File
             </button>
           </div>
         )}
@@ -393,29 +327,9 @@ export default function ReceivePage() {
 
 function Reticle({ className, rot }: { className: string; rot: string }) {
   return (
-    <div className={`absolute w-6 h-6 ${className}`}>
-      <div className={`absolute top-0 left-0 w-3 h-0.5 bg-cyan-400/80 ${rot}`} />
-      <div className={`absolute top-0 left-0 w-0.5 h-3 bg-cyan-400/80 ${rot}`} />
-    </div>
-  );
-}
-
-function Confetti() {
-  const colors = ['#6366f1', '#06b6d4', '#a855f7', '#34d399', '#fbbf24'];
-  return (
-    <div className="absolute inset-0 pointer-events-none">
-      {Array.from({ length: 14 }).map((_, i) => (
-        <span
-          key={i}
-          className="confetti-piece absolute w-1.5 h-1.5 rounded-sm"
-          style={{
-            left: `${50 + (Math.random() * 60 - 30)}%`,
-            top: '40%',
-            background: colors[i % colors.length],
-            animationDelay: `${Math.random() * 0.3}s`,
-          }}
-        />
-      ))}
+    <div className={`absolute w-4 h-4 ${className}`}>
+      <div className={`absolute top-0 left-0 w-2.5 h-0.5 bg-cyan-400/80 ${rot}`} />
+      <div className={`absolute top-0 left-0 w-0.5 h-2.5 bg-cyan-400/80 ${rot}`} />
     </div>
   );
 }
