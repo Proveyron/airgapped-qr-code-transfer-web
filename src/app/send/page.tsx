@@ -4,9 +4,15 @@ import { useState, useRef, useEffect } from 'react';
 import Header from '@/components/Header';
 import * as pako from 'pako';
 import QRCode from 'qrcode';
-import styles from './send.module.css';
+import { Upload, File as FileIcon, X, Zap, Play, Pause, RotateCcw } from 'lucide-react';
 
-// Fast direct Base64 encoding without double-encoding bloat
+const DENSITIES = [
+  { label: '250B', name: 'Compact', value: 250 },
+  { label: '500B', name: 'Standard', value: 500 },
+  { label: '750B', name: 'Fast', value: 750 },
+  { label: '1000B', name: 'Ultra', value: 1000 },
+];
+
 const encodeData = (index: number, inputBytes: Uint8Array): string => {
   let binary = '';
   const len = inputBytes.byteLength;
@@ -16,7 +22,7 @@ const encodeData = (index: number, inputBytes: Uint8Array): string => {
   return index + ',' + btoa(binary);
 };
 
-const formatSize = (bytes: number) => {
+const bytesToHuman = (bytes: number) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -26,251 +32,303 @@ const formatSize = (bytes: number) => {
 
 export default function SendPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState<'idle' | 'ready' | 'transferring' | 'done'>('idle');
-  const [currentChunk, setCurrentChunk] = useState<number>(0);
-  const [totalChunks, setTotalChunks] = useState<number>(0);
-  const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const [transferSpeed, setTransferSpeed] = useState<number>(50); // Fast 50ms default (20 FPS)
-  const [chunkSize, setChunkSize] = useState<number>(750); // Fast 750 Bytes default (3x original)
-  const [compressedSize, setCompressedSize] = useState<number>(0);
   const [compressedData, setCompressedData] = useState<Uint8Array | null>(null);
-  const [loopCount, setLoopCount] = useState<number>(1);
-  
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const transferringRef = useRef<boolean>(false);
+  const [compressedSize, setCompressedSize] = useState<number | null>(null);
+  const [density, setDensity] = useState<number>(750); // Default Fast (750B)
+  const [fps, setFps] = useState<number>(20); // Default 20 FPS (50ms)
+  const [playing, setPlaying] = useState<boolean>(false);
+  const [chunkIdx, setChunkIdx] = useState<number>(0);
+  const [loop, setLoop] = useState<number>(1);
+  const [dragging, setDragging] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const processFile = async (selectedFile: File, newChunkSize = chunkSize) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playRef = useRef<boolean>(false);
+  const timerRef = useRef<any>(null);
+
+  playRef.current = playing;
+
+  const total = compressedData ? Math.ceil(compressedData.length / density) : 0;
+  const delay = Math.round(1000 / fps);
+
+  const processFile = async (selectedFile: File) => {
+    setLoading(true);
     try {
       const buffer = await selectedFile.arrayBuffer();
-      const compressed = pako.gzip(buffer, { level: 9 });
-      
+      const compressed = pako.gzip(new Uint8Array(buffer), { level: 9 });
       setFile(selectedFile);
       setCompressedData(compressed);
       setCompressedSize(compressed.length);
-      setTotalChunks(Math.ceil(compressed.length / newChunkSize));
-      setStatus('ready');
+      setChunkIdx(0);
+      setLoop(1);
+      setPlaying(true);
     } catch (err) {
       console.error('Error compressing file:', err);
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const handleChunkSizeChange = (newSize: number) => {
-    setChunkSize(newSize);
-    if (file) {
-      processFile(file, newSize);
-    }
-  };
-
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const onDragLeave = () => {
-    setIsDragging(false);
   };
 
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(false);
-    
+    setDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       await processFile(e.dataTransfer.files[0]);
     }
   };
 
-  const onFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       await processFile(e.target.files[0]);
     }
   };
 
-  const startTransfer = async () => {
-    if (!file || !compressedData) return;
-    
-    setStatus('transferring');
-    transferringRef.current = true;
-    setCurrentChunk(0);
-    setLoopCount(1);
+  // Render current chunk to Canvas
+  const renderChunk = async (idx: number) => {
+    if (!compressedData || !canvasRef.current || total === 0) return;
 
-    // Pre-generate all QR data URLs in memory for max performance (no rendering lag during playback!)
-    const metadata = JSON.stringify({ name: file.name, chunks: totalChunks });
-    const metaQrUrl = await QRCode.toDataURL(metadata, { width: 400, margin: 1, errorCorrectionLevel: 'L' });
-    
-    const qrCache: string[] = [];
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * chunkSize;
-      const chunk = compressedData.subarray(start, start + chunkSize);
-      const encoded = encodeData(i, chunk);
-      const url = await QRCode.toDataURL(encoded, { width: 400, margin: 1, errorCorrectionLevel: 'L' });
-      qrCache.push(url);
+    let encodedStr = '';
+    if (idx === -1) {
+      // Metadata
+      encodedStr = JSON.stringify({ name: file?.name, chunks: total });
+    } else {
+      const start = idx * density;
+      const chunk = compressedData.subarray(start, start + density);
+      encodedStr = encodeData(idx, chunk);
     }
 
-    // Display metadata QR twice for receiver recognition
-    setQrDataUrl(metaQrUrl);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      await QRCode.toCanvas(canvasRef.current, encodedStr, {
+        width: 320,
+        margin: 1,
+        errorCorrectionLevel: 'L',
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      });
+    } catch (err) {
+      console.error('Error rendering QR to canvas:', err);
+    }
+  };
 
-    let pass = 1;
-    while (transferringRef.current) {
-      setLoopCount(pass);
-      for (let i = 0; i < totalChunks; i++) {
-        if (!transferringRef.current) break;
-        setCurrentChunk(i);
-        setQrDataUrl(qrCache[i]);
-        await new Promise(resolve => setTimeout(resolve, transferSpeed));
+  // Main playback loop
+  useEffect(() => {
+    if (!playing || !compressedData || total === 0) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      return;
+    }
+
+    let current = chunkIdx;
+    let currentLoop = loop;
+
+    const tick = async () => {
+      if (!playRef.current) return;
+
+      await renderChunk(current);
+
+      let next = current + 1;
+      if (next >= total) {
+        next = 0;
+        currentLoop += 1;
+        setLoop(currentLoop);
       }
-      pass++;
-    }
+
+      current = next;
+      setChunkIdx(next);
+
+      if (playRef.current) {
+        timerRef.current = setTimeout(tick, delay);
+      }
+    };
+
+    tick();
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [playing, compressedData, density, fps]);
+
+  const resetPlayback = () => {
+    setChunkIdx(0);
+    setLoop(1);
   };
 
-  const stopTransfer = () => {
-    transferringRef.current = false;
-    setStatus('done');
-  };
-
-  const reset = () => {
-    transferringRef.current = false;
+  const clearFile = () => {
+    setPlaying(false);
     setFile(null);
     setCompressedData(null);
-    setStatus('idle');
+    setCompressedSize(null);
+    setChunkIdx(0);
+    setLoop(1);
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
   };
 
+  const progress = total > 0 ? ((chunkIdx + 1) / total) * 100 : 0;
+
   return (
-    <div className={styles.container}>
-      <Header title="Send Mode" showBack={true} />
+    <div className="relative z-10 h-full w-full overflow-hidden min-h-screen flex flex-col">
+      <Header mode="send" title="Send Mode" showBack={true} />
 
-      <main className={styles.main}>
-        <div className={styles.content}>
-          {status === 'idle' && (
-            <div 
-              className={`${styles.dropZone} ${isDragging ? styles.dropZoneActive : ''}`}
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onDrop={onDrop}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <svg className={styles.dropIcon} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-              <h3 className={styles.dropText}>Drag & drop a file here</h3>
-              <p className={styles.dropSubtext}>or click to browse</p>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={onFileSelect} 
-                style={{ display: 'none' }} 
-              />
+      <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 pt-20 pb-10 flex flex-col gap-4">
+        {!compressedData ? (
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            className={`fade-up glass rounded-2xl p-8 sm:p-12 flex flex-col items-center justify-center text-center cursor-pointer transition-all flex-1 min-h-[320px] ${
+              dragging
+                ? 'border-indigo-400/50 shadow-[0_0_40px_-8px_rgba(99,102,241,0.6)]'
+                : 'border-dashed border-white/15'
+            }`}
+          >
+            <input type="file" className="hidden" onChange={onPick} />
+            <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/25 to-cyan-500/10 flex items-center justify-center mb-4 transition-transform ${dragging ? 'scale-110' : ''}`}>
+              {loading ? (
+                <div className="w-6 h-6 border-2 border-white/20 border-t-cyan-400 rounded-full animate-spin" />
+              ) : (
+                <Upload className="w-6 h-6 text-indigo-300" />
+              )}
             </div>
-          )}
-
-          {status === 'ready' && file && (
-            <>
-              <div className={styles.fileInfo}>
-                <div className={styles.fileDetail}>
-                  <span className={styles.fileDetailLabel}>File Name</span>
-                  <span className={styles.fileDetailValue}>{file.name}</span>
-                </div>
-                <div className={styles.fileDetail}>
-                  <span className={styles.fileDetailLabel}>Original Size</span>
-                  <span className={styles.fileDetailValue}>{formatSize(file.size)}</span>
-                </div>
-                <div className={styles.fileDetail}>
-                  <span className={styles.fileDetailLabel}>Compressed Size</span>
-                  <span className={styles.fileDetailValue}>{formatSize(compressedSize)}</span>
-                </div>
-                <div className={styles.fileDetail}>
-                  <span className={styles.fileDetailLabel}>Total Chunks</span>
-                  <span className={styles.fileDetailValue}>{totalChunks}</span>
+            <p className="text-base font-semibold text-white/90">
+              {loading ? 'Compressing with Gzip…' : 'Drop a file or click to select'}
+            </p>
+            <p className="text-xs text-white/40 mt-1.5">
+              Auto-compressed with Gzip level 9 before streaming
+            </p>
+          </label>
+        ) : (
+          <>
+            {/* File info card */}
+            <div className="fade-up glass rounded-xl p-4 flex items-center gap-4 shrink-0">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500/25 to-cyan-500/10 flex items-center justify-center shrink-0">
+                <FileIcon className="w-5 h-5 text-indigo-300" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white truncate">{file?.name}</p>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] font-mono">
+                  <span className="text-white/45">{bytesToHuman(file?.size || 0)}</span>
+                  {compressedSize !== null && (
+                    <span className="text-emerald-300/90">{bytesToHuman(compressedSize)} gzip</span>
+                  )}
+                  <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-cyan-300/90 truncate max-w-[140px]">
+                    {file?.type || 'binary'}
+                  </span>
                 </div>
               </div>
+              <button
+                onClick={clearFile}
+                className="btn-ghost rounded-lg p-2 shrink-0 text-white/60 hover:text-white"
+                aria-label="Remove file"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-              <div className={styles.sliderGroup}>
-                <div className={styles.sliderLabel}>
-                  <span>Chunk Size (Bytes per QR)</span>
-                  <span>{chunkSize} B</span>
+            {/* Controls Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+              <div className="glass rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-[11px] font-medium text-white/60 uppercase tracking-wider">Chunk Density</span>
+                  <span className="font-mono text-[11px] text-cyan-300/90">{total} chunks</span>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
-                  {[250, 500, 750, 1000].map(size => (
+                <div className="grid grid-cols-4 gap-1.5">
+                  {DENSITIES.map((d) => (
                     <button
-                      key={size}
-                      className={chunkSize === size ? 'btn-primary' : 'btn-secondary'}
-                      style={{ flex: 1, padding: '0.4rem', fontSize: '0.85rem' }}
-                      onClick={() => handleChunkSizeChange(size)}
+                      key={d.value}
+                      onClick={() => setDensity(d.value)}
+                      className={`rounded-lg py-2 px-1 text-center transition-all border ${
+                        density === d.value
+                          ? 'bg-indigo-500/20 border-indigo-400/60 text-white shadow-[0_0_18px_-4px_rgba(99,102,241,0.8)]'
+                          : 'bg-white/[0.02] border-white/8 text-white/55 hover:border-white/20'
+                      }`}
                     >
-                      {size === 250 ? 'Compat (250B)' : size === 500 ? 'Normal (500B)' : size === 750 ? 'Fast (750B)' : 'Ultra (1000B)'}
+                      <div className="text-xs font-semibold font-mono">{d.label}</div>
+                      <div className="text-[9px] opacity-70">{d.name}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className={styles.sliderGroup}>
-                <div className={styles.sliderLabel}>
-                  <span>Frame Delay (Speed)</span>
-                  <span>{transferSpeed} ms ({Math.round(1000 / transferSpeed)} FPS)</span>
+              <div className="glass rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-[11px] font-medium text-white/60 uppercase tracking-wider">Speed Control</span>
+                  <span className="font-mono text-[11px] text-cyan-300/90 flex items-center gap-1">
+                    <Zap className="w-3.5 h-3.5" /> {fps} FPS / {delay}ms
+                  </span>
                 </div>
-                <input 
-                  type="range" 
-                  min="20" 
-                  max="300" 
-                  step="10" 
-                  value={transferSpeed} 
-                  onChange={(e) => setTransferSpeed(Number(e.target.value))}
-                  className={styles.slider}
+                <input
+                  type="range"
+                  min={1}
+                  max={30}
+                  value={fps}
+                  onChange={(e) => setFps(Number(e.target.value))}
+                  className="glow-slider w-full mt-3"
                 />
-              </div>
-
-              <div className={styles.controls}>
-                <button className="btn-primary" onClick={startTransfer} style={{ flex: 1 }}>
-                  ⚡ Start High-Speed Transfer
-                </button>
-                <button className="btn-secondary" onClick={reset}>
-                  Change File
-                </button>
-              </div>
-            </>
-          )}
-
-          {status === 'transferring' && (
-            <div className={styles.qrContainer}>
-              <div className={styles.qrWrapper}>
-                {qrDataUrl && <img src={qrDataUrl} alt="QR Code Chunk" className={styles.qrImage} />}
-              </div>
-              <div style={{ width: '100%', maxWidth: '350px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                  <span className={styles.chunkText}>Loop {loopCount} — Chunk {currentChunk + 1} of {totalChunks}</span>
-                  <span className={styles.chunkText}>{Math.round(((currentChunk + 1) / totalChunks) * 100)}%</span>
+                <div className="flex justify-between text-[10px] font-mono text-white/30 mt-2">
+                  <span>1 FPS</span>
+                  <span>30 FPS</span>
                 </div>
-                <div style={{ width: '100%', height: '6px', background: 'var(--bg-secondary)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div 
-                    style={{ 
-                      height: '100%', 
-                      background: 'var(--accent-primary)', 
-                      width: `${((currentChunk + 1) / totalChunks) * 100}%`,
-                      transition: 'width 0.05s linear'
-                    }} 
+              </div>
+            </div>
+
+            {/* QR Player */}
+            <div className="fade-up glass rounded-2xl p-4 flex flex-col items-center shrink-0">
+              <div className="relative cyber-ring rounded-2xl p-3 bg-white flex items-center justify-center">
+                <canvas
+                  ref={canvasRef}
+                  width={320}
+                  height={320}
+                  className="block rounded-lg"
+                  style={{ width: 'min(38vh, 60vw, 280px)', height: 'min(38vh, 60vw, 280px)' }}
+                />
+                {!playing && total > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-2xl backdrop-blur-[2px]">
+                    <button
+                      onClick={() => setPlaying(true)}
+                      className="w-14 h-14 rounded-full btn-gradient flex items-center justify-center shadow-lg"
+                      aria-label="Play"
+                    >
+                      <Play className="w-6 h-6 ml-0.5 text-white" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full max-w-sm mt-4">
+                <div className="flex items-center justify-between text-xs font-mono mb-1.5">
+                  <span className="text-white/60">Loop {loop} · Chunk {chunkIdx + 1} / {total}</span>
+                  <span className="gradient-text font-bold">{progress.toFixed(0)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all duration-150"
+                    style={{ width: `${progress}%` }}
                   />
                 </div>
               </div>
-              
-              <button className="btn-primary" onClick={stopTransfer} style={{ marginTop: '1rem', width: '100%', maxWidth: '350px' }}>
-                Complete / Stop Streaming
-              </button>
-            </div>
-          )}
 
-          {status === 'done' && (
-            <div className={styles.doneContainer}>
-              <svg className={styles.doneIcon} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <h2 className={styles.doneTitle}>Transfer Streaming Complete</h2>
-              <button className="btn-primary" onClick={reset} style={{ marginTop: '1rem' }}>
-                Send Another File
-              </button>
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  onClick={() => setPlaying((p) => !p)}
+                  className="btn-gradient rounded-xl px-5 py-2.5 text-sm font-semibold flex items-center gap-2"
+                >
+                  {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  {playing ? 'Pause' : 'Play'}
+                </button>
+                <button
+                  onClick={resetPlayback}
+                  className="btn-ghost rounded-xl px-4 py-2.5 text-sm flex items-center gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" /> Restart Loop
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+          </>
+        )}
       </main>
     </div>
   );

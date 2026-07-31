@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { AmbientBackground } from "@/components/Header";
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0f",
+  themeColor: "#07070a",
   width: "device-width",
   initialScale: 1,
 };
@@ -55,8 +56,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>
-        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <body className="bg-[#07070a] text-[#e7e7ee] overflow-hidden antialiased">
+        <AmbientBackground />
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", position: "relative", zIndex: 1 }}>
           {children}
         </div>
       </body>

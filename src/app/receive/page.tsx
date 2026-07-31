@@ -1,260 +1,442 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Header from '@/components/Header';
-import styles from './receive.module.css';
 import * as pako from 'pako';
+import { Camera, Square, Trash2, CheckCircle2, Download, ScanLine } from 'lucide-react';
 
-type Status = 'idle' | 'scanning' | 'done';
+interface ReceiveState {
+  name: string | null;
+  size: number;
+  total: number;
+  received: Map<number, Uint8Array>;
+}
 
-const decode_data = (input_string: string): { index: number; data: number[] } => {
-  const commaIndex = input_string.indexOf(',');
-  const indexStr = input_string.substring(0, commaIndex);
-  const base64Str = input_string.substring(commaIndex + 1);
-  const binary_string = atob(base64Str);
-  
-  const data_array = new Array(binary_string.length);
-  for (let i = 0; i < binary_string.length; i++) {
-    data_array[i] = binary_string.charCodeAt(i);
+const initialState: ReceiveState = {
+  name: null,
+  size: 0,
+  total: 0,
+  received: new Map(),
+};
+
+const bytesToHuman = (bytes: number) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
+const decodeData = (inputString: string): { index: number; data: Uint8Array } | null => {
+  const commaIndex = inputString.indexOf(',');
+  if (commaIndex === -1) return null;
+  const indexStr = inputString.substring(0, commaIndex);
+  const base64Str = inputString.substring(commaIndex + 1);
+  try {
+    const binaryString = atob(base64Str);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return {
+      index: parseInt(indexStr, 10),
+      data: bytes,
+    };
+  } catch (e) {
+    return null;
   }
-  return {
-    index: parseInt(indexStr, 10),
-    data: data_array,
-  };
 };
 
 export default function ReceivePage() {
-  const [status, setStatus] = useState<Status>('idle');
-  const [fileName, setFileName] = useState<string>('');
-  const [totalChunks, setTotalChunks] = useState<number>(0);
-  const [receivedCount, setReceivedCount] = useState<number>(0);
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  
-  const receivedChunks = useRef<Record<number, number[]>>({});
-  const scannerRef = useRef<any>(null);
-  
-  const resetState = useCallback(() => {
-    setStatus('idle');
-    setFileName('');
-    setTotalChunks(0);
-    setReceivedCount(0);
-    setErrorMessage('');
-    receivedChunks.current = {};
+  const [state, setState] = useState<ReceiveState>(initialState);
+  const [scanning, setScanning] = useState<boolean>(false);
+  const [done, setDone] = useState<boolean>(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number | null>(null);
+  const zbarRef = useRef<any>(null);
+
+  const stateRef = useRef<ReceiveState>(state);
+  stateRef.current = state;
+
+  const syncState = useCallback((fn: (prev: ReceiveState) => ReceiveState) => {
+    setState((prev) => {
+      const next = fn(prev);
+      stateRef.current = next;
+      return next;
+    });
   }, []);
 
-  const handleScanSuccess = useCallback((decodedText: string) => {
+  // Process decoded QR text
+  const processDecodedText = useCallback((text: string) => {
     try {
-      if (decodedText.includes('"chunks"')) {
-        const metadata = JSON.parse(decodedText);
-        if (metadata.name && metadata.chunks) {
-          // If metadata changes or fresh metadata received, reset chunks buffer
-          if (fileName !== metadata.name || totalChunks !== metadata.chunks) {
-            receivedChunks.current = {};
-            setReceivedCount(0);
-          }
-          setFileName(metadata.name);
-          setTotalChunks(metadata.chunks);
+      if (text.includes('"chunks"')) {
+        const meta = JSON.parse(text);
+        if (meta.name && meta.chunks) {
+          syncState((prev) => {
+            if (prev.name !== meta.name || prev.total !== meta.chunks) {
+              return {
+                name: meta.name,
+                size: prev.size,
+                total: meta.chunks,
+                received: new Map(),
+              };
+            }
+            return prev;
+          });
         }
-      } else if (decodedText.includes(',')) {
-        const { index, data } = decode_data(decodedText);
-        if (!isNaN(index) && !receivedChunks.current[index]) {
-          receivedChunks.current[index] = data;
-          setReceivedCount((prev) => prev + 1);
+      } else if (text.includes(',')) {
+        const decoded = decodeData(text);
+        if (decoded && !isNaN(decoded.index)) {
+          syncState((prev) => {
+            if (prev.received.has(decoded.index)) return prev;
+            const nextMap = new Map(prev.received);
+            nextMap.set(decoded.index, decoded.data);
+            return {
+              ...prev,
+              received: nextMap,
+            };
+          });
         }
       }
     } catch (e) {
-      console.error('Error parsing QR code:', e);
+      console.error('Scan parse error:', e);
     }
-  }, [fileName, totalChunks]);
+  }, [syncState]);
 
-  const handleScanFailure = useCallback(() => {
-    // Ignore frame scan failures
+  // Main scan loop using zbar-wasm / jsQR / video canvas frame scanning
+  const scanFrame = useCallback(async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (!video || !canvas || video.readyState < 2) {
+      if (scanning) {
+        rafRef.current = requestAnimationFrame(scanFrame);
+      }
+      return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      try {
+        if (!zbarRef.current && (window as any).zbarWasm) {
+          zbarRef.current = (window as any).zbarWasm;
+        }
+
+        if (zbarRef.current) {
+          const symbols = await zbarRef.current.scanImageData(imgData);
+          if (symbols && symbols.length > 0) {
+            const text = symbols[0].decode();
+            if (text) processDecodedText(text);
+          }
+        }
+      } catch (e) {
+        // Continue scanning silently
+      }
+    }
+
+    if (scanning) {
+      rafRef.current = requestAnimationFrame(scanFrame);
+    }
+  }, [scanning, processDecodedText]);
+
+  // Handle completion assembly
+  useEffect(() => {
+    const { total, received, name } = state;
+    if (total > 0 && received.size === total && !done) {
+      try {
+        let totalLen = 0;
+        for (let i = 0; i < total; i++) {
+          const chunk = received.get(i);
+          if (!chunk) throw new Error(`Missing chunk ${i}`);
+          totalLen += chunk.length;
+        }
+
+        const fullCompressed = new Uint8Array(totalLen);
+        let offset = 0;
+        for (let i = 0; i < total; i++) {
+          const chunk = received.get(i)!;
+          fullCompressed.set(chunk, offset);
+          offset += chunk.length;
+        }
+
+        const decompressed = pako.inflate(fullCompressed);
+        const blob = new Blob([decompressed]);
+        const url = URL.createObjectURL(blob);
+
+        syncState((prev) => ({ ...prev, size: decompressed.length }));
+        setDownloadUrl(url);
+        setDone(true);
+        setScanning(false);
+
+        // Auto trigger download
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name || 'received-file';
+        a.click();
+      } catch (e) {
+        console.error('File assembly error:', e);
+        setError('Error reconstructing file buffer.');
+      }
+    }
+  }, [state, done, syncState]);
+
+  const startCamera = useCallback(async () => {
+    setError(null);
+    try {
+      // Inject zbar-wasm script dynamically if needed
+      if (!(window as any).zbarWasm) {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@latest/dist/index.js';
+        document.body.appendChild(script);
+        await new Promise((r) => setTimeout(r, 800));
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        await video.play();
+      }
+      setScanning(true);
+    } catch {
+      try {
+        // Fallback to default/front camera
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          await video.play();
+        }
+        setScanning(true);
+      } catch {
+        setError('Camera access denied or unavailable.');
+      }
+    }
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    setScanning(false);
+    const video = videoRef.current;
+    if (video?.srcObject) {
+      (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+      video.srcObject = null;
+    }
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
   }, []);
 
   useEffect(() => {
-    if (totalChunks > 0 && receivedCount === totalChunks && status === 'scanning') {
-      const processCompleteFile = () => {
-        try {
-          const finalArray: number[] = [];
-          for (let i = 0; i < totalChunks; i++) {
-            if (receivedChunks.current[i]) {
-              finalArray.push(...receivedChunks.current[i]);
-            } else {
-              throw new Error(`Missing chunk ${i}`);
-            }
-          }
-          
-          const decompressed = pako.inflate(new Uint8Array(finalArray));
-          const blob = new Blob([decompressed]);
-          const url = URL.createObjectURL(blob);
-          
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = fileName || 'received_file';
-          a.click();
-          URL.revokeObjectURL(url);
-          
-          setStatus('done');
-          stopScanner();
-        } catch (e) {
-          console.error('Decompression error:', e);
-          setErrorMessage('Error reconstructing file. It may be corrupted.');
-        }
+    if (scanning) {
+      rafRef.current = requestAnimationFrame(scanFrame);
+      return () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
       };
-      
-      processCompleteFile();
     }
-  }, [receivedCount, totalChunks, status, fileName]);
-
-  const stopScanner = async () => {
-    if (scannerRef.current) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-      } catch (e) {
-        console.error('Error stopping scanner', e);
-      }
-      scannerRef.current = null;
-    }
-  };
-
-  const startScanner = async () => {
-    // Thoroughly wipe all stored file chunks before starting a new scan
-    receivedChunks.current = {};
-    setFileName('');
-    setTotalChunks(0);
-    setReceivedCount(0);
-    setErrorMessage('');
-    setStatus('scanning');
-    
-    try {
-      const { Html5Qrcode } = await import('html5-qrcode');
-      const html5QrCode = new Html5Qrcode('qr-reader');
-      scannerRef.current = html5QrCode;
-      
-      const config = { fps: 60, qrbox: { width: 320, height: 320 } };
-      
-      try {
-        await html5QrCode.start(
-          { facingMode: 'environment' },
-          config,
-          handleScanSuccess,
-          handleScanFailure
-        );
-      } catch (e) {
-        console.warn('Could not start with environment camera, trying without constraints', e);
-        await html5QrCode.start(
-          { facingMode: 'user' },
-          config,
-          handleScanSuccess,
-          handleScanFailure
-        );
-      }
-    } catch (e: any) {
-      console.error('Failed to start scanner:', e);
-      setErrorMessage(`Failed to start camera: ${e.message}`);
-      setStatus('idle');
-    }
-  };
-
-  const handleStopScanning = () => {
-    stopScanner();
-    resetState(); // Completely clean all older files chunks, state, and metadata
-  };
+  }, [scanning, scanFrame]);
 
   useEffect(() => {
     return () => {
-      stopScanner();
+      stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
+
+  const purge = () => {
+    stopCamera();
+    syncState(() => initialState);
+    setDone(false);
+    setDownloadUrl(null);
+    setError(null);
+  };
+
+  const download = () => {
+    if (!downloadUrl) return;
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = state.name || 'received-file';
+    a.click();
+  };
+
+  const receivedCount = state.received.size;
+  const progress = state.total ? (receivedCount / state.total) * 100 : 0;
 
   return (
-    <div className={styles.container}>
-      <Header title="Receive Mode" showBack={true} />
-      
-      <main className={styles.main}>
-        <div className={styles.content}>
-          {status === 'idle' && (
-            <>
-              <div className={styles.instructions}>
-                <svg className={styles.instructionsIcon} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <h2 className={styles.instructionsTitle}>Point your camera at the sender's screen</h2>
-                <p className={styles.instructionsText}>
-                  Keep the QR code centered. High-speed 60 FPS scanning is active.
-                </p>
-              </div>
-              
-              {errorMessage && <p className={styles.error}>{errorMessage}</p>}
-              
-              <button 
-                className="btn-primary" 
-                onClick={startScanner}
-              >
-                ⚡ Start High-Speed Scanner
-              </button>
-              <p className={styles.note}>Camera access is required for QR scanning</p>
-            </>
-          )}
+    <div className="relative z-10 h-full w-full overflow-hidden min-h-screen flex flex-col">
+      <Header mode="receive" title="Receive Mode" showBack={true} />
 
-          <div style={{ display: status === 'scanning' ? 'block' : 'none' }}>
-             <div className={styles.scannerContainer}>
-               <div id="qr-reader"></div>
-             </div>
-             
-             <div className={styles.scanInfo} style={{ marginTop: '2rem' }}>
-                {fileName ? (
-                  <>
-                    <h3 className={styles.scanFileName}>{fileName}</h3>
-                    <div className={styles.progressSection}>
-                      <div className={styles.progressLabel}>
-                        <span>Progress</span>
-                        <span>{receivedCount} / {totalChunks} ({Math.round((receivedCount / totalChunks) * 100)}%)</span>
-                      </div>
-                      <div className={styles.chunkGrid}>
-                        {Array.from({ length: Math.min(totalChunks, 200) }).map((_, i) => (
-                          <div 
-                            key={i} 
-                            className={`${styles.chunkDot} ${receivedChunks.current[i] ? styles.chunkDotReceived : ''}`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <p className={styles.instructionsText}>Scanning for file metadata...</p>
-                )}
-                
-                <button 
-                  className="btn-danger" 
-                  onClick={handleStopScanning}
-                >
-                  Stop Scanning
-                </button>
-             </div>
+      <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-20 pb-10 flex flex-col gap-4">
+        {/* Scanner */}
+        <div className="fade-up glass rounded-2xl p-4 flex flex-col items-center shrink-0">
+          <div className="flex items-center justify-between w-full mb-3">
+            <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">Camera Scanner</span>
+            <span className={`font-mono text-xs flex items-center gap-2 ${scanning ? 'text-emerald-300' : 'text-white/40'}`}>
+              <span className={`w-2 h-2 rounded-full ${scanning ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
+              {scanning ? 'LIVE 60FPS' : 'IDLE'}
+            </span>
           </div>
 
-          {status === 'done' && (
-            <div className={styles.doneContainer}>
-              <svg className={styles.doneIcon} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <h2 className={styles.doneTitle}>File Received!</h2>
-              <p className={styles.doneFileName}>{fileName}</p>
-              
-              <button 
-                className="btn-primary" 
-                style={{ width: '100%', marginTop: '1rem' }}
-                onClick={resetState}
+          <div
+            className="relative rounded-2xl overflow-hidden bg-black/80 border border-white/10 shrink-0 flex items-center justify-center"
+            style={{ width: 'min(42vh, 75vw, 320px)', height: 'min(42vh, 75vw, 320px)' }}
+          >
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className={`w-full h-full object-cover ${scanning ? 'opacity-90' : 'opacity-30'}`}
+            />
+            <canvas ref={canvasRef} className="hidden" />
+
+            <Reticle className="top-3 left-3" rot="rotate-0" />
+            <Reticle className="top-3 right-3" rot="rotate-90" />
+            <Reticle className="bottom-3 left-3" rot="-rotate-90" />
+            <Reticle className="bottom-3 right-3" rot="rotate-180" />
+
+            {scanning && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                  className="radar-sweep w-[80%] h-[80%] rounded-full"
+                  style={{
+                    background: 'conic-gradient(from 0deg, transparent 0deg, rgba(6,182,212,0.25) 40deg, transparent 60deg)',
+                  }}
+                />
+              </div>
+            )}
+
+            {scanning && (
+              <div className="absolute inset-x-0 scanline h-0.5 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_2px_rgba(6,182,212,0.7)]" />
+            )}
+
+            {!scanning && !done && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6">
+                <ScanLine className="w-8 h-8 text-cyan-300/80" />
+                <p className="text-xs text-white/60">
+                  {error ? error : 'Point your camera at a streaming QR code'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 mt-4 flex-wrap justify-center">
+            {!scanning ? (
+              <button
+                onClick={startCamera}
+                className="btn-gradient rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold flex items-center gap-2"
               >
-                Receive Another File
+                <Camera className="w-4 h-4" /> Start Scanning
               </button>
-            </div>
-          )}
+            ) : (
+              <button
+                onClick={stopCamera}
+                className="btn-ghost rounded-xl px-4 py-2.5 text-xs sm:text-sm flex items-center gap-2"
+              >
+                <Square className="w-4 h-4" /> Pause
+              </button>
+            )}
+            <button
+              onClick={purge}
+              className="btn-ghost rounded-xl px-4 py-2.5 text-xs sm:text-sm flex items-center gap-2 text-rose-300/90 hover:text-rose-200"
+            >
+              <Trash2 className="w-4 h-4" /> Stop & Purge Buffer
+            </button>
+          </div>
         </div>
+
+        {/* Chunk grid */}
+        {state.total > 0 && (
+          <div className="fade-up glass rounded-xl p-4 shrink-0">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">Chunk Matrix Grid</span>
+              <span className="font-mono text-xs text-cyan-300/90">
+                {receivedCount} / {state.total} · {progress.toFixed(0)}%
+              </span>
+            </div>
+            <div
+              className="grid gap-1 overflow-hidden p-2 bg-black/40 rounded-lg border border-white/5"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(10px, 1fr))', maxHeight: '120px' }}
+            >
+              {Array.from({ length: Math.min(state.total, 400) }).map((_, i) => {
+                const got = state.received.has(i);
+                return (
+                  <div
+                    key={i}
+                    className={`aspect-square rounded-[3px] transition-all ${
+                      got ? 'bg-emerald-400 led-on' : 'bg-white/10'
+                    }`}
+                  />
+                );
+              })}
+            </div>
+            {state.total > 400 && (
+              <p className="text-[10px] font-mono text-white/30 mt-1.5 text-center">
+                showing first 400 of {state.total} chunks
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Completion card */}
+        {done && (
+          <div className="fade-up glass-strong rounded-2xl p-6 flex flex-col items-center text-center pop shrink-0">
+            <div className="relative">
+              <Confetti />
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400/30 to-cyan-400/10 flex items-center justify-center shadow-lg">
+                <CheckCircle2 className="w-9 h-9 text-emerald-300" />
+              </div>
+            </div>
+            <h3 className="text-lg font-bold text-white mt-4">Transfer Complete</h3>
+            <p className="text-xs font-mono text-white/60 mt-1 truncate max-w-full">
+              {state.name} · {bytesToHuman(state.size)}
+            </p>
+            <button
+              onClick={download}
+              className="btn-gradient rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold flex items-center gap-2 mt-4"
+            >
+              <Download className="w-4 h-4" /> Download File
+            </button>
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+function Reticle({ className, rot }: { className: string; rot: string }) {
+  return (
+    <div className={`absolute w-6 h-6 ${className}`}>
+      <div className={`absolute top-0 left-0 w-3 h-0.5 bg-cyan-400/80 ${rot}`} />
+      <div className={`absolute top-0 left-0 w-0.5 h-3 bg-cyan-400/80 ${rot}`} />
+    </div>
+  );
+}
+
+function Confetti() {
+  const colors = ['#6366f1', '#06b6d4', '#a855f7', '#34d399', '#fbbf24'];
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      {Array.from({ length: 14 }).map((_, i) => (
+        <span
+          key={i}
+          className="confetti-piece absolute w-1.5 h-1.5 rounded-sm"
+          style={{
+            left: `${50 + (Math.random() * 60 - 30)}%`,
+            top: '40%',
+            background: colors[i % colors.length],
+            animationDelay: `${Math.random() * 0.3}s`,
+          }}
+        />
+      ))}
     </div>
   );
 }
