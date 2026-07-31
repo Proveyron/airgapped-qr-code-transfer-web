@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 📡 QR Transfer — Airgapped File Transfer Web App
 
-## Getting Started
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new)
 
-First, run the development server:
+**QR Transfer** is a modern, zero-dependency, serverless web application that enables secure, airgapped file transfers between any two devices using dynamic animated QR codes. No local network, Wi-Fi, Bluetooth, internet connection, or physical cables required.
+
+Inspired by [mohankumarelec/airgapped-qr-code-transfer](https://github.com/mohankumarelec/airgapped-qr-code-transfer). Rebuilt from scratch with Next.js 16 (App Router), TypeScript, pako compression, qrcode rendering, and html5-qrcode web scanning.
+
+---
+
+## ✨ Features
+
+- 🔒 **100% Airgapped & Offline Ready**: Complete end-to-end file transfers happen locally inside the browser.
+- 📁 **Universal File Picker & Drag-and-Drop**: Upload any file format from any device (mobile or desktop).
+- ⚡ **Gzip Data Compression**: Compresses file buffers using `pako` before chunking to optimize QR density.
+- 📺 **Animated QR Code Carousel**: Renders sequential 250-byte encoded data chunks with customizable frame delay (50ms - 500ms).
+- 📷 **Instant Camera Scanner**: Scans QR streams via device camera (front or back environment camera).
+- 📊 **Real-time Progress Grid**: Visual chunk map displaying received vs. pending chunks during scanning.
+- 🎨 **Modern Dark Glassmorphism UI**: Built with custom CSS design tokens, smooth gradients, and micro-animations.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Framework**: [Next.js 16 (App Router)](https://nextjs.org/)
+- **Language**: TypeScript
+- **Compression**: [pako](https://github.com/nodeca/pako) (Gzip)
+- **QR Generation**: [qrcode](https://github.com/soldair/node-qrcode)
+- **QR Scanning**: [html5-qrcode](https://github.com/mebjas/html5-qrcode)
+- **Styling**: Pure Vanilla CSS (CSS Modules & Design Tokens)
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+ and npm installed.
+
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/Proveyron/airgapped-qr-code-transfer-web.git
+cd airgapped-qr-code-transfer-web
+
+# Install dependencies
+npm install
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🌐 Deploy to Vercel
 
-## Learn More
+This project is optimized for 1-click deployment on [Vercel](https://vercel.com).
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install -g vercel
+vercel
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Or connect the repository on the [Vercel Dashboard](https://vercel.com/new).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 📄 License
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT License. Free for open source and personal use.

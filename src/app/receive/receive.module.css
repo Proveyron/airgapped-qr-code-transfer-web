@@ -1,0 +1,179 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.content {
+  width: 100%;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  animation: fadeIn 0.5s ease forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.instructions {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.instructionsIcon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1rem;
+  color: var(--text-muted);
+}
+
+.instructionsTitle {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.instructionsText {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: center;
+  font-style: italic;
+}
+
+.scannerContainer {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.scannerContainer :global(#qr-reader) {
+  border: none !important;
+  padding: 0 !important;
+}
+
+.scannerContainer :global(#qr-reader video) {
+  border-radius: var(--radius-lg) !important;
+}
+
+.scannerContainer :global(#qr-reader__dashboard) {
+  display: none !important;
+}
+
+.scanInfo {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.scanFileName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.progressSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.progressLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.chunkGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 8px);
+  gap: 2px;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  max-height: 100px;
+  overflow: hidden;
+}
+
+.chunkDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--bg-secondary);
+}
+
+.chunkDotReceived {
+  background: var(--success);
+}
+
+.doneContainer {
+  text-align: center;
+  padding: 3rem;
+  animation: fadeIn 0.5s ease forwards;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+}
+
+.doneIcon {
+  width: 64px;
+  height: 64px;
+  color: var(--success);
+  margin: 0 auto 1rem;
+}
+
+.doneTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.doneFileName {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .main {
+    padding: 1rem;
+  }
+}
