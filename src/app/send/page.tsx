@@ -173,7 +173,7 @@ export default function SendPage() {
     <div className="relative z-10 w-full min-h-screen flex flex-col">
       <Header mode="send" title="Send Mode" showBack={true} />
 
-      <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 pt-20 pb-10 flex flex-col gap-4">
+      <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 pt-16 sm:pt-20 pb-4 sm:pb-8 flex flex-col gap-3">
         {!compressedData ? (
           <label
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}

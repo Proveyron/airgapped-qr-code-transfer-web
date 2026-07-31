@@ -275,7 +275,7 @@ export default function ReceivePage() {
     <div className="relative z-10 w-full min-h-screen flex flex-col">
       <Header mode="receive" title="Receive Mode" showBack={true} />
 
-      <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-20 pb-10 flex flex-col gap-4">
+      <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-16 sm:pt-20 pb-4 sm:pb-8 flex flex-col gap-3">
         {/* Scanner */}
         <div className="fade-up glass rounded-2xl p-4 flex flex-col items-center shrink-0">
           <div className="flex items-center justify-between w-full mb-3">
