@@ -1,8 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
   --void: #07070a;
@@ -230,10 +227,8 @@ input[type='range'].glow-slider::-webkit-slider-thumb:hover {
   transform: scale(1.15);
 }
 
-/* Scrollbar hidden globally for strict 0-overflow */
 ::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
-/* Entrance Animations */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
