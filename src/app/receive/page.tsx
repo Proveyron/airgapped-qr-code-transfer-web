@@ -33,20 +33,25 @@ export default function ReceivePage() {
   const receivedChunks = useRef<Record<number, number[]>>({});
   const scannerRef = useRef<any>(null);
   
-  const resetState = () => {
+  const resetState = useCallback(() => {
     setStatus('idle');
     setFileName('');
     setTotalChunks(0);
     setReceivedCount(0);
     setErrorMessage('');
     receivedChunks.current = {};
-  };
+  }, []);
 
   const handleScanSuccess = useCallback((decodedText: string) => {
     try {
       if (decodedText.includes('"chunks"')) {
         const metadata = JSON.parse(decodedText);
         if (metadata.name && metadata.chunks) {
+          // If metadata changes or fresh metadata received, reset chunks buffer
+          if (fileName !== metadata.name || totalChunks !== metadata.chunks) {
+            receivedChunks.current = {};
+            setReceivedCount(0);
+          }
           setFileName(metadata.name);
           setTotalChunks(metadata.chunks);
         }
@@ -60,7 +65,7 @@ export default function ReceivePage() {
     } catch (e) {
       console.error('Error parsing QR code:', e);
     }
-  }, []);
+  }, [fileName, totalChunks]);
 
   const handleScanFailure = useCallback(() => {
     // Ignore frame scan failures
@@ -101,7 +106,24 @@ export default function ReceivePage() {
     }
   }, [receivedCount, totalChunks, status, fileName]);
 
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current.clear();
+      } catch (e) {
+        console.error('Error stopping scanner', e);
+      }
+      scannerRef.current = null;
+    }
+  };
+
   const startScanner = async () => {
+    // Thoroughly wipe all stored file chunks before starting a new scan
+    receivedChunks.current = {};
+    setFileName('');
+    setTotalChunks(0);
+    setReceivedCount(0);
     setErrorMessage('');
     setStatus('scanning');
     
@@ -110,7 +132,6 @@ export default function ReceivePage() {
       const html5QrCode = new Html5Qrcode('qr-reader');
       scannerRef.current = html5QrCode;
       
-      // High performance 60 FPS scanning
       const config = { fps: 60, qrbox: { width: 320, height: 320 } };
       
       try {
@@ -136,21 +157,9 @@ export default function ReceivePage() {
     }
   };
 
-  const stopScanner = async () => {
-    if (scannerRef.current) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-      } catch (e) {
-        console.error('Error stopping scanner', e);
-      }
-      scannerRef.current = null;
-    }
-  };
-
   const handleStopScanning = () => {
     stopScanner();
-    setStatus('idle');
+    resetState(); // Completely clean all older files chunks, state, and metadata
   };
 
   useEffect(() => {
