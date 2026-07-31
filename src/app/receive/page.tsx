@@ -8,13 +8,17 @@ import * as pako from 'pako';
 type Status = 'idle' | 'scanning' | 'done';
 
 const decode_data = (input_string: string): { index: number; data: number[] } => {
-  const encoded_data = atob(input_string.split(',')[1]);
-  const encoded_array = Array.from(encoded_data, (char) => char.charCodeAt(0));
-  const utf8Decoder = new TextDecoder();
-  const output_string = utf8Decoder.decode(new Uint8Array(encoded_array));
-  const data_array = Array.from(output_string, (char) => char.charCodeAt(0));
+  const commaIndex = input_string.indexOf(',');
+  const indexStr = input_string.substring(0, commaIndex);
+  const base64Str = input_string.substring(commaIndex + 1);
+  const binary_string = atob(base64Str);
+  
+  const data_array = new Array(binary_string.length);
+  for (let i = 0; i < binary_string.length; i++) {
+    data_array[i] = binary_string.charCodeAt(i);
+  }
   return {
-    index: parseInt(input_string.split(',')[0]),
+    index: parseInt(indexStr, 10),
     data: data_array,
   };
 };
@@ -45,21 +49,12 @@ export default function ReceivePage() {
         if (metadata.name && metadata.chunks) {
           setFileName(metadata.name);
           setTotalChunks(metadata.chunks);
-          // Optional: reset if new file starts
-          // receivedChunks.current = {};
-          // setReceivedCount(0);
         }
       } else if (decodedText.includes(',')) {
-        const parts = decodedText.split(',');
-        if (parts.length === 2) {
-          const { index, data } = decode_data(decodedText);
-          if (!receivedChunks.current[index]) {
-            receivedChunks.current[index] = data;
-            setReceivedCount((prev) => {
-              const newCount = prev + 1;
-              return newCount;
-            });
-          }
+        const { index, data } = decode_data(decodedText);
+        if (!isNaN(index) && !receivedChunks.current[index]) {
+          receivedChunks.current[index] = data;
+          setReceivedCount((prev) => prev + 1);
         }
       }
     } catch (e) {
@@ -67,8 +62,8 @@ export default function ReceivePage() {
     }
   }, []);
 
-  const handleScanFailure = useCallback((error: any) => {
-    // Ignore frequent scan failures (e.g. no QR in frame)
+  const handleScanFailure = useCallback(() => {
+    // Ignore frame scan failures
   }, []);
 
   useEffect(() => {
@@ -115,7 +110,8 @@ export default function ReceivePage() {
       const html5QrCode = new Html5Qrcode('qr-reader');
       scannerRef.current = html5QrCode;
       
-      const config = { fps: 30, qrbox: { width: 300, height: 300 } };
+      // High performance 60 FPS scanning
+      const config = { fps: 60, qrbox: { width: 320, height: 320 } };
       
       try {
         await html5QrCode.start(
@@ -176,9 +172,9 @@ export default function ReceivePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                <h2 className={styles.instructionsTitle}>Point your camera at the sender's screen to begin receiving</h2>
+                <h2 className={styles.instructionsTitle}>Point your camera at the sender's screen</h2>
                 <p className={styles.instructionsText}>
-                  Keep the QR code well-lit and centered in the frame. The transfer will start automatically.
+                  Keep the QR code centered. High-speed 60 FPS scanning is active.
                 </p>
               </div>
               
@@ -188,7 +184,7 @@ export default function ReceivePage() {
                 className="btn-primary" 
                 onClick={startScanner}
               >
-                Start Scanning
+                ⚡ Start High-Speed Scanner
               </button>
               <p className={styles.note}>Camera access is required for QR scanning</p>
             </>
@@ -206,7 +202,7 @@ export default function ReceivePage() {
                     <div className={styles.progressSection}>
                       <div className={styles.progressLabel}>
                         <span>Progress</span>
-                        <span>{receivedCount} / {totalChunks}</span>
+                        <span>{receivedCount} / {totalChunks} ({Math.round((receivedCount / totalChunks) * 100)}%)</span>
                       </div>
                       <div className={styles.chunkGrid}>
                         {Array.from({ length: Math.min(totalChunks, 200) }).map((_, i) => (
@@ -219,7 +215,7 @@ export default function ReceivePage() {
                     </div>
                   </>
                 ) : (
-                  <p className={styles.instructionsText}>Looking for file metadata...</p>
+                  <p className={styles.instructionsText}>Scanning for file metadata...</p>
                 )}
                 
                 <button 
