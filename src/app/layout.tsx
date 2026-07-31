@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://airgapped-qr-code-transfer-web.vercel.app",
+    url: "https://airgap-qr.vercel.app",
     title: "QR Transfer — Airgapped Offline File Transfer Web App",
     description:
       "Transfer files offline between any devices using animated QR codes. 100% serverless, zero network required.",

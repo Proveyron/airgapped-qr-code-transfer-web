@@ -6,6 +6,6 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: '*',
       allow: '/',
     },
-    sitemap: 'https://airgapped-qr-code-transfer-web.vercel.app/sitemap.xml',
+    sitemap: 'https://airgap-qr.vercel.app/sitemap.xml',
   };
 }

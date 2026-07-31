@@ -1,7 +1,7 @@
 import { MetadataRoute } from 'next';
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://airgapped-qr-code-transfer-web.vercel.app';
+  const baseUrl = 'https://airgap-qr.vercel.app';
   return [
     {
       url: baseUrl,
